@@ -15,7 +15,7 @@ const debugRoutes = require('./routes/debugRoutes');
 
 // Middleware
 app.use(cors({
-    origin: ['https://movie-booking-frontend-nine.vercel.app/', 'http://localhost:3000'], // URL sau khi deploy Vercel
+    origin: ['https://movie-booking-frontend-nine.vercel.app', 'http://localhost:3000'], // URL sau khi deploy Vercel
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));

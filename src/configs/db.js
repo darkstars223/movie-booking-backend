@@ -9,8 +9,11 @@ const pool = mysql.createPool({
     database: process.env.DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
-});
+    queueLimit: 0,
+    ssl: {
+        rejectUnauthorized: false
+    }
+}); 
 
 // Xuất ra dưới dạng Promise để dùng async/await cho dễ
 const promisePool = pool.promise();

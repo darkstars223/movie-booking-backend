@@ -7,7 +7,8 @@ const pool = mysql.createPool({
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    waitForConnections: true,
+    port: process.env.DB_PORT || 12777,
+    waitForConnections: true,   
     connectionLimit: 10,
     queueLimit: 0,
     ssl: {
@@ -19,4 +20,4 @@ const pool = mysql.createPool({
 const promisePool = pool.promise();
 
 // Export cả pool.promise() cho các query thông thường
-module.exports = promisePool;
+module.exports = promisePool;               

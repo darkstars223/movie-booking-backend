@@ -1,21 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../configs/db');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const dir = path.join(process.cwd(), 'uploads/');
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        cb(null, dir);
-    }, 
-    filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
-});
-const upload = multer({ storage });
 
 const normalizeDateOnly = (value) => {
     if (!value) return null;
@@ -24,14 +9,11 @@ const normalizeDateOnly = (value) => {
 };
 
 // 1. Thêm phim mới
-router.post('/movies/add', upload.single('poster'), async (req, res) => {
+router.post('/movies/add', async (req, res) => {
     try {
-        const { title, description, duration, genre, trailer_url, youtube_trailer_url, release_date, userId } = req.body;
+        const { title, description, duration, genre, trailer_url, youtube_trailer_url, release_date, poster_url, userId } = req.body;
         const trailerUrl = youtube_trailer_url || trailer_url || "";
-        // Fix lỗi: Nếu không có file thì lưu null để tránh lỗi nếu field không cho phép empty string
-        const poster_url = req.file ? `/uploads/${req.file.filename}` : null;
-        console.log('req.file:', req.file);
-        console.log('poster_url:', poster_url);
+        const posterUrl = poster_url ? String(poster_url).trim() : null;
 
         const [user] = await db.query('SELECT role FROM users WHERE id = ?', [userId]);
         if (!user.length || user[0].role !== 'admin') {
@@ -46,7 +28,7 @@ router.post('/movies/add', upload.single('poster'), async (req, res) => {
             description || "", 
             duration || 0, 
             genre || "", 
-            poster_url, 
+            posterUrl, 
             trailerUrl, 
             normalizeDateOnly(release_date),
             trailerUrl
@@ -58,9 +40,9 @@ router.post('/movies/add', upload.single('poster'), async (req, res) => {
 });
 
 // 2. Sửa phim
-router.put('/movies/edit/:id', upload.single('poster'), async (req, res) => {
+router.put('/movies/edit/:id', async (req, res) => {
     try {
-        const { title, description, duration, genre, trailer_url, youtube_trailer_url, release_date, userId } = req.body;
+        const { title, description, duration, genre, trailer_url, youtube_trailer_url, release_date, poster_url, userId } = req.body;
         const trailerUrl = youtube_trailer_url || trailer_url || "";
         const { id } = req.params;
 
@@ -68,7 +50,9 @@ router.put('/movies/edit/:id', upload.single('poster'), async (req, res) => {
         if (!user.length || user[0].role !== 'admin') return res.status(403).json({ message: "Từ chối!" });
 
         const [oldMovie] = await db.query('SELECT poster_url FROM movies WHERE id = ?', [id]);
-        let current_poster = req.file ? `/uploads/${req.file.filename}` : oldMovie[0].poster_url;
+        if (!oldMovie.length) return res.status(404).json({ message: "Phim không tồn tại!" });
+
+        const current_poster = poster_url ? String(poster_url).trim() : oldMovie[0].poster_url;
 
         const sql = `UPDATE movies SET title=?, description=?, duration=?, genre=?, poster_url=?, trailer_url=?, release_date=?, youtube_trailer_url=? WHERE id=?`;
         await db.query(sql, [title, description, duration, genre, current_poster, trailerUrl, normalizeDateOnly(release_date), trailerUrl, id]);

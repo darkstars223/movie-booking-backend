@@ -11,6 +11,7 @@ const ticketSelect = `
         b.booking_time,
         m.title,
         m.poster_url,
+        m.duration as movie_duration,
         s.start_time,
         TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) as end_time,
         st.seat_number,

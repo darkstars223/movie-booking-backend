@@ -465,6 +465,103 @@ router.delete('/seats/delete/showtime/:showtimeId', async (req, res) => {
     }
 });
 
+// Admin view revenue statistics
+router.get('/statistics', async (req, res) => {
+    try {
+        const { from_date, to_date } = req.query;
+        const dateFilter = [];
+        let whereClause = '';
+
+        if (from_date && to_date) {
+            whereClause = 'AND DATE(sh.start_time) BETWEEN ? AND ?';
+            dateFilter.push(from_date, to_date);
+        } else if (from_date) {
+            whereClause = 'AND DATE(sh.start_time) >= ?';
+            dateFilter.push(from_date);
+        } else if (to_date) {
+            whereClause = 'AND DATE(sh.start_time) <= ?';
+            dateFilter.push(to_date);
+        }
+
+        const [summary] = await db.query(`
+            SELECT
+                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END), 0) AS total_revenue,
+                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN 1 ELSE 0 END), 0) AS tickets_sold,
+                COALESCE(SUM(CASE WHEN b.status = 'pending' THEN b.total_price ELSE 0 END), 0) AS pending_revenue,
+                COALESCE(SUM(CASE WHEN b.status = 'cancel' THEN b.total_price ELSE 0 END), 0) AS canceled_revenue
+            FROM bookings b
+            JOIN showtimes sh ON b.showtime_id = sh.id
+            WHERE 1 = 1 ${whereClause}
+        `, dateFilter);
+
+        const [revenueByShowtime] = await db.query(`
+            SELECT
+                sh.id AS showtime_id,
+                sh.room_name,
+                t.name AS theater_name,
+                m.title AS movie_title,
+                sh.start_time,
+                sh.price,
+                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END), 0) AS revenue,
+                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN 1 ELSE 0 END), 0) AS tickets_sold
+            FROM showtimes sh
+            JOIN movies m ON sh.movie_id = m.id
+            JOIN theaters t ON sh.theater_id = t.id
+            LEFT JOIN bookings b ON b.showtime_id = sh.id
+            WHERE 1 = 1 ${whereClause}
+            GROUP BY sh.id
+            ORDER BY revenue DESC, tickets_sold DESC
+            LIMIT 30
+        `, dateFilter);
+
+        const [revenueByTheater] = await db.query(`
+            SELECT
+                t.id AS theater_id,
+                t.name AS theater_name,
+                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END), 0) AS revenue,
+                COALESCE(COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END), 0) AS tickets_sold
+            FROM theaters t
+            LEFT JOIN showtimes sh ON sh.theater_id = t.id
+            LEFT JOIN bookings b ON b.showtime_id = sh.id
+            WHERE 1 = 1 ${whereClause}
+            GROUP BY t.id
+            ORDER BY revenue DESC
+        `, dateFilter);
+
+        const [revenueByMovie] = await db.query(`
+            SELECT
+                m.id AS movie_id,
+                m.title AS movie_title,
+                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END), 0) AS revenue,
+                COALESCE(COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END), 0) AS tickets_sold
+            FROM movies m
+            LEFT JOIN showtimes sh ON sh.movie_id = m.id
+            LEFT JOIN bookings b ON b.showtime_id = sh.id
+            WHERE 1 = 1 ${whereClause}
+            GROUP BY m.id
+            ORDER BY revenue DESC
+        `, dateFilter);
+
+        const totalRevenue = summary[0]?.total_revenue || 0;
+        const ticketsSold = summary[0]?.tickets_sold || 0;
+
+        res.json({
+            total_revenue: totalRevenue,
+            tickets_sold: ticketsSold,
+            pending_revenue: summary[0]?.pending_revenue || 0,
+            canceled_revenue: summary[0]?.canceled_revenue || 0,
+            average_ticket_value: ticketsSold ? Number((totalRevenue / ticketsSold).toFixed(2)) : 0,
+            revenue_by_showtime: revenueByShowtime,
+            revenue_by_theater: revenueByTheater,
+            revenue_by_movie: revenueByMovie,
+            date_range: { from_date, to_date }
+        });
+    } catch (err) {
+        console.error('Lỗi thống kê doanh thu:', err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
 // Admin view bookings
 router.get('/bookings', async (req, res) => {
     try {

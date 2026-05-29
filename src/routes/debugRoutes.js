@@ -29,7 +29,7 @@ router.post('/cleanup-status', async (req, res) => {
         const [result] = await db.query(`
             UPDATE bookings 
             SET status = 'cancel' 
-            WHERE status IN ('cancelled', 'expired')
+            WHERE status = 'cancelled'
         `);
         res.json({ 
             message: `Đã sửa ${result.affectedRows} vé có status cũ.`,

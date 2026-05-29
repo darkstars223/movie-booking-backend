@@ -485,8 +485,8 @@ router.get('/statistics', async (req, res) => {
 
         const [summary] = await db.query(`
             SELECT
-                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END), 0) AS total_revenue,
-                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN 1 ELSE 0 END), 0) AS tickets_sold,
+                COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN b.total_price ELSE 0 END), 0) AS total_revenue,
+                COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN 1 ELSE 0 END), 0) AS tickets_sold,
                 COALESCE(SUM(CASE WHEN b.status = 'pending' THEN b.total_price ELSE 0 END), 0) AS pending_revenue,
                 COALESCE(SUM(CASE WHEN b.status = 'cancel' THEN b.total_price ELSE 0 END), 0) AS canceled_revenue
             FROM bookings b
@@ -502,8 +502,8 @@ router.get('/statistics', async (req, res) => {
                 m.title AS movie_title,
                 sh.start_time,
                 sh.price,
-                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END), 0) AS revenue,
-                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN 1 ELSE 0 END), 0) AS tickets_sold
+                COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN b.total_price ELSE 0 END), 0) AS revenue,
+                COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN 1 ELSE 0 END), 0) AS tickets_sold
             FROM showtimes sh
             JOIN movies m ON sh.movie_id = m.id
             JOIN theaters t ON sh.theater_id = t.id
@@ -518,8 +518,8 @@ router.get('/statistics', async (req, res) => {
             SELECT
                 t.id AS theater_id,
                 t.name AS theater_name,
-                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END), 0) AS revenue,
-                COALESCE(COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END), 0) AS tickets_sold
+                COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN b.total_price ELSE 0 END), 0) AS revenue,
+                COALESCE(COUNT(CASE WHEN b.status IN ('confirmed', 'expired') THEN 1 END), 0) AS tickets_sold
             FROM theaters t
             LEFT JOIN showtimes sh ON sh.theater_id = t.id
             LEFT JOIN bookings b ON b.showtime_id = sh.id
@@ -532,8 +532,8 @@ router.get('/statistics', async (req, res) => {
             SELECT
                 m.id AS movie_id,
                 m.title AS movie_title,
-                COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END), 0) AS revenue,
-                COALESCE(COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END), 0) AS tickets_sold
+                COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN b.total_price ELSE 0 END), 0) AS revenue,
+                COALESCE(COUNT(CASE WHEN b.status IN ('confirmed', 'expired') THEN 1 END), 0) AS tickets_sold
             FROM movies m
             LEFT JOIN showtimes sh ON sh.movie_id = m.id
             LEFT JOIN bookings b ON b.showtime_id = sh.id
@@ -624,7 +624,7 @@ router.post('/cleanup-invalid-status', async (req, res) => {
         const [result] = await db.query(`
             UPDATE bookings 
             SET status = 'cancel' 
-            WHERE status IN ('cancelled', 'expired')
+            WHERE status = 'cancelled'
         `);
 
         res.json({ 

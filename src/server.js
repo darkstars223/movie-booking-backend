@@ -53,7 +53,7 @@ setInterval(async () => {
         const sqlCleanup = `
             UPDATE bookings 
             SET status = 'cancel' 
-            WHERE status IN ('cancelled', 'expired')
+            WHERE status = 'cancelled'
         `;
         await db.query(sqlCleanup);
 
@@ -68,12 +68,12 @@ setInterval(async () => {
             console.log(`⚙️ [Hệ thống]: Đã hủy tự động ${cancelResult.affectedRows} vé quá hạn 10 phút.`);
         }
 
-        // 2. Tự động chuyển vé 'confirmed' sang 'cancel' khi suất chiếu đã kết thúc
+        // 2. Tự động chuyển vé 'confirmed' sang 'expired' khi suất chiếu đã kết thúc
         const sqlExpireConfirmed = `
             UPDATE bookings b
             INNER JOIN showtimes s ON b.showtime_id = s.id
             INNER JOIN movies m ON s.movie_id = m.id
-            SET b.status = 'cancel'
+            SET b.status = 'expired'
             WHERE b.status = 'confirmed' 
             AND s.start_time IS NOT NULL
             AND TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) <= NOW()

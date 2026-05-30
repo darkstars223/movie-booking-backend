@@ -86,7 +86,7 @@ setInterval(async () => {
     } catch (error) {
         console.error('❌ Lỗi tiến trình tự động xử lý vé:', error.message);
     }
-}, 60000); 
+}, 60000);    
  
 
 const PORT = process.env.PORT || 5000;

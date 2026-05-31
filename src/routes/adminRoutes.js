@@ -2,6 +2,17 @@ const express = require('express');
 const router = express.Router();
 const db = require('../configs/db');
 
+const markExpiredConfirmedBookings = async () => {
+    await db.query(`
+        UPDATE bookings b
+        JOIN showtimes s ON b.showtime_id = s.id
+        JOIN movies m ON s.movie_id = m.id
+        SET b.status = 'expired'
+        WHERE b.status = 'confirmed'
+          AND TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) <= NOW()
+    `);
+};
+
 const normalizeDateOnly = (value) => {
     if (!value) return null;
     const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -468,6 +479,7 @@ router.delete('/seats/delete/showtime/:showtimeId', async (req, res) => {
 // Admin view revenue statistics
 router.get('/statistics', async (req, res) => {
     try {
+        await markExpiredConfirmedBookings();
         const { from_date, to_date } = req.query;
         const dateFilter = [];
         let whereClause = '';
@@ -487,6 +499,8 @@ router.get('/statistics', async (req, res) => {
             SELECT
                 COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN b.total_price ELSE 0 END), 0) AS total_revenue,
                 COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN 1 ELSE 0 END), 0) AS tickets_sold,
+                COALESCE(SUM(CASE WHEN b.status = 'expired' THEN b.total_price ELSE 0 END), 0) AS expired_revenue,
+                COALESCE(SUM(CASE WHEN b.status = 'expired' THEN 1 ELSE 0 END), 0) AS expired_tickets,
                 COALESCE(SUM(CASE WHEN b.status = 'pending' THEN b.total_price ELSE 0 END), 0) AS pending_revenue,
                 COALESCE(SUM(CASE WHEN b.status = 'cancel' THEN b.total_price ELSE 0 END), 0) AS canceled_revenue
             FROM bookings b
@@ -548,6 +562,8 @@ router.get('/statistics', async (req, res) => {
         res.json({
             total_revenue: totalRevenue,
             tickets_sold: ticketsSold,
+            expired_revenue: summary[0]?.expired_revenue || 0,
+            expired_tickets: summary[0]?.expired_tickets || 0,
             pending_revenue: summary[0]?.pending_revenue || 0,
             canceled_revenue: summary[0]?.canceled_revenue || 0,
             average_ticket_value: ticketsSold ? Number((totalRevenue / ticketsSold).toFixed(2)) : 0,
@@ -565,6 +581,7 @@ router.get('/statistics', async (req, res) => {
 // Admin view bookings
 router.get('/bookings', async (req, res) => {
     try {
+        await markExpiredConfirmedBookings();
         const [rows] = await db.query(`
             SELECT
                 b.*,

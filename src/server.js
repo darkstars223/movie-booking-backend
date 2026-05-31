@@ -73,7 +73,7 @@ setInterval(async () => {
             UPDATE bookings b
             INNER JOIN showtimes s ON b.showtime_id = s.id
             INNER JOIN movies m ON s.movie_id = m.id
-            SET b.status = 'cancel'
+            SET b.status = 'expired'
             WHERE b.status = 'confirmed' 
             AND s.start_time IS NOT NULL
             AND TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) <= NOW()

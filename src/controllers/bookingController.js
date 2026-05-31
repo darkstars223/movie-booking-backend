@@ -24,6 +24,17 @@ const ticketSelect = `
     JOIN theaters t ON s.theater_id = t.id
 `;
 
+const markExpiredConfirmedBookings = async (connection) => {
+    await connection.query(`
+        UPDATE bookings b
+        JOIN showtimes s ON b.showtime_id = s.id
+        JOIN movies m ON s.movie_id = m.id
+        SET b.status = 'expired'
+        WHERE b.status = 'confirmed'
+          AND TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) <= NOW()
+    `);
+};
+
 exports.createBooking = async (req, res) => {
     const { user_id, showtime_id, seat_ids, total_price } = req.body;
 
@@ -75,6 +86,7 @@ exports.getUserTickets = async (req, res) => {
     const connection = await db.getConnection();
     try {
         const { user_id } = req.params;
+        await markExpiredConfirmedBookings(connection);
         const [tickets] = await connection.query(
             `${ticketSelect}
              WHERE b.user_id = ?
@@ -133,6 +145,15 @@ exports.getTicketDetail = async (req, res) => {
     const connection = await db.getConnection();
     try {
         const { ticket_id } = req.params;
+        await connection.query(`
+            UPDATE bookings b
+            JOIN showtimes s ON b.showtime_id = s.id
+            JOIN movies m ON s.movie_id = m.id
+            SET b.status = 'expired'
+            WHERE b.id = ?
+              AND b.status = 'confirmed'
+              AND TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) <= NOW()
+        `, [ticket_id]);
         const [ticket] = await connection.query(
             `${ticketSelect}
              WHERE b.id = ?`,

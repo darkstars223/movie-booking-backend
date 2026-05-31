@@ -556,6 +556,18 @@ router.get('/statistics', async (req, res) => {
             ORDER BY revenue DESC
         `, dateFilter);
 
+        const [revenueByDate] = await db.query(`
+            SELECT
+                DATE(sh.start_time) AS date,
+                COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN b.total_price ELSE 0 END), 0) AS revenue,
+                COALESCE(COUNT(CASE WHEN b.status IN ('confirmed', 'expired') THEN 1 END), 0) AS orders
+            FROM showtimes sh
+            LEFT JOIN bookings b ON b.showtime_id = sh.id
+            WHERE 1 = 1 ${whereClause}
+            GROUP BY DATE(sh.start_time)
+            ORDER BY DATE(sh.start_time)
+        `, dateFilter);
+
         const totalRevenue = summary[0]?.total_revenue || 0;
         const ticketsSold = summary[0]?.tickets_sold || 0;
 
@@ -570,6 +582,7 @@ router.get('/statistics', async (req, res) => {
             revenue_by_showtime: revenueByShowtime,
             revenue_by_theater: revenueByTheater,
             revenue_by_movie: revenueByMovie,
+            revenue_by_date: revenueByDate,
             date_range: { from_date, to_date }
         });
     } catch (err) {

@@ -556,17 +556,30 @@ router.get('/statistics', async (req, res) => {
             ORDER BY revenue DESC
         `, dateFilter);
 
+        // Biểu đồ theo ngày ĐẶT VÉ (booking_time), không phải ngày chiếu
+        const bookingDateParams = [];
+        let bookingDateWhere = "WHERE b.status IN ('confirmed', 'expired')";
+        if (from_date && to_date) {
+            bookingDateWhere += ' AND DATE(b.booking_time) BETWEEN ? AND ?';
+            bookingDateParams.push(from_date, to_date);
+        } else if (from_date) {
+            bookingDateWhere += ' AND DATE(b.booking_time) >= ?';
+            bookingDateParams.push(from_date);
+        } else if (to_date) {
+            bookingDateWhere += ' AND DATE(b.booking_time) <= ?';
+            bookingDateParams.push(to_date);
+        }
+
         const [revenueByDate] = await db.query(`
             SELECT
-                DATE(sh.start_time) AS date,
-                COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'expired') THEN b.total_price ELSE 0 END), 0) AS revenue,
-                COALESCE(COUNT(CASE WHEN b.status IN ('confirmed', 'expired') THEN 1 END), 0) AS orders
-            FROM showtimes sh
-            LEFT JOIN bookings b ON b.showtime_id = sh.id
-            WHERE 1 = 1 ${whereClause}
-            GROUP BY DATE(sh.start_time)
-            ORDER BY DATE(sh.start_time)
-        `, dateFilter);
+                DATE(b.booking_time) AS date,
+                COALESCE(SUM(b.total_price), 0) AS revenue,
+                COALESCE(COUNT(*), 0) AS orders
+            FROM bookings b
+            ${bookingDateWhere}
+            GROUP BY DATE(b.booking_time)
+            ORDER BY DATE(b.booking_time)
+        `, bookingDateParams);
 
         const totalRevenue = summary[0]?.total_revenue || 0;
         const ticketsSold = summary[0]?.tickets_sold || 0;

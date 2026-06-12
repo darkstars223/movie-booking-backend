@@ -19,15 +19,16 @@ exports.createShowtime = async (req, res) => {
         const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
         let seats = [];
         for (let i = 0; i < rows; i++) {
+            const isVip = i > 0 ? 1 : 0; // Hàng A (i=0) là thường, hàng B+ là VIP
             for (let j = 1; j <= cols; j++) {
                 const seatNumber = `${alphabet[i]}${j}`;
-                // Cấu trúc mảng trùng với các cột: showtime_id, seat_number, is_booked
-                seats.push([showtimeId, seatNumber, false]);
+                // Cấu trúc mảng trùng với các cột: showtime_id, seat_number, is_booked, is_vip
+                seats.push([showtimeId, seatNumber, false, isVip]);
             }
         }
 
         // Bước 3: Lưu hàng loạt ghế vào bảng 'seats' chỉ với 1 câu lệnh SQL
-        const query = 'INSERT INTO seats (showtime_id, seat_number, is_booked) VALUES ?';
+        const query = 'INSERT INTO seats (showtime_id, seat_number, is_booked, is_vip) VALUES ?';
         await connection.query(query, [seats]);
 
         await connection.commit(); // Xác nhận hoàn tất

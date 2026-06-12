@@ -250,14 +250,15 @@ router.post('/showtimes/add', async (req, res) => {
             for (let row = 0; row < numRows && seatCount < capacity; row++) {
                 const rowLetter = rowLetters[row];
                 const seatsInThisRow = Math.min(seatsPerRow, capacity - seatCount);
+                const isVip = row > 0 ? 1 : 0; // Hàng A (row=0) là thường, hàng B+ là VIP
                 
                 for (let seat = 1; seat <= seatsInThisRow; seat++) {
-                    seats.push([showtimeId, `${rowLetter}${seat}`, false]);
+                    seats.push([showtimeId, `${rowLetter}${seat}`, false, isVip]);
                     seatCount++;
                 }
             }
             
-            await db.query('INSERT INTO seats (showtime_id, seat_number, is_booked) VALUES ?', [seats]);
+            await db.query('INSERT INTO seats (showtime_id, seat_number, is_booked, is_vip) VALUES ?', [seats]);
         }
 
         res.status(201).json({ message: "Thêm showtime thành công!" });
@@ -377,16 +378,17 @@ router.post('/seats/generate/showtime/:showtimeId', async (req, res) => {
             const rowIndex = Math.floor((nextSeatNumber - 1) / seatsPerRow);
             const seatIndex = ((nextSeatNumber - 1) % seatsPerRow) + 1;
             const rowLetter = rowLetters[rowIndex];
+            const isVip = rowIndex > 0 ? 1 : 0; // Hàng A (rowIndex=0) là thường, hàng B+ là VIP
             
             if (rowIndex >= rowLetters.length) {
                 return res.status(400).json({ message: `Vượt quá giới hạn số hàng ghế!` });
             }
             
-            seats.push([showtimeId, `${rowLetter}${seatIndex}`, false]);
+            seats.push([showtimeId, `${rowLetter}${seatIndex}`, false, isVip]);
             nextSeatNumber++;
         }
         
-        await db.query('INSERT INTO seats (showtime_id, seat_number, is_booked) VALUES ?', [seats]);
+        await db.query('INSERT INTO seats (showtime_id, seat_number, is_booked, is_vip) VALUES ?', [seats]);
         res.status(201).json({ message: `Đã thêm ${seatsToAdd} ghế thành công! Tổng cộng: ${currentCount + seatsToAdd} ghế.` });
     } catch (err) {
         console.error('Lỗi thêm ghế:', err);

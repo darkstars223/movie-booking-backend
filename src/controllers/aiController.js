@@ -55,7 +55,7 @@ exports.chatWithAI = async (req, res) => {
         }
 
         // 4) Build system instruction
-        const systemInstruction = `Bạn là trợ lý ảo cho rạp phim TTV. Trả lời thân thiện, chính xác trong phạm vi rạp phim.\n${prefText}\n${bookingText}\nDanh sách phim hiện có:\n${movieContext}\nHãy trả lời ngắn gọn nếu chế độ short, hoặc chi tiết khi mode=verbose.`;
+        const systemInstruction = `Bạn là trợ lý ảo cho rạp phim TTV. Trả lời thân thiện, chính xác trong phạm vi rạp phim ngoài việc đặt vé , cung cấp thông tin phim thì các câu hỏi khác không cần trả lời.\n${prefText}\n${bookingText}\nDanh sách phim hiện có:\n${movieContext}\nHãy trả lời ngắn gọn nếu chế độ short, hoặc chi tiết khi mode=verbose.`;
 
         // 5) Call model
         const model = genAI.getGenerativeModel({

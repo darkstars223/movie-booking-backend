@@ -12,8 +12,8 @@ const ticketSelect = `
         m.title,
         m.poster_url,
         m.duration as movie_duration,
-        s.start_time,
-        TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) as end_time,
+        DATE_FORMAT(s.start_time, '%Y-%m-%d %H:%i:%s') as start_time,
+        DATE_FORMAT(TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time), '%Y-%m-%d %H:%i:%s') as end_time,
         st.seat_number,
         s.room_name,
         t.name as theater_name

@@ -45,8 +45,8 @@ exports.getShowtimesByMovie = async (req, res) => {
                 s.id,
                 s.movie_id,
                 s.room_name,
-                s.start_time,
-                TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) as end_time,
+                DATE_FORMAT(s.start_time, '%Y-%m-%d %H:%i:%s') as start_time,
+                DATE_FORMAT(TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time), '%Y-%m-%d %H:%i:%s') as end_time,
                 s.price,
                 s.theater_id,
                 t.name as theater_name
@@ -80,13 +80,13 @@ exports.getSeatsByShowtime = async (req, res) => {
 exports.getShowtimeDetail = async (req, res) => {
     const { showtimeId } = req.params;
     try {
-        const [rows] = await db.query(
-            `SELECT
+        const [rows] = await db.query(`
+            SELECT
                 s.id,
                 s.movie_id,
                 s.room_name,
-                s.start_time,
-                TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time) as end_time,
+                DATE_FORMAT(s.start_time, '%Y-%m-%d %H:%i:%s') as start_time,
+                DATE_FORMAT(TIMESTAMPADD(MINUTE, COALESCE(CAST(m.duration AS SIGNED), 0), s.start_time), '%Y-%m-%d %H:%i:%s') as end_time,
                 s.price,
                 s.theater_id,
                 m.title,
@@ -95,9 +95,8 @@ exports.getShowtimeDetail = async (req, res) => {
              FROM showtimes s 
              JOIN movies m ON s.movie_id = m.id 
              JOIN theaters t ON s.theater_id = t.id 
-             WHERE s.id = ?`, 
-            [showtimeId]
-        );
+             WHERE s.id = ?
+        `, [showtimeId]);
         res.json(rows[0]);
     } catch (error) {
         res.status(500).json({ message: "Lỗi lấy thông tin suất chiếu" });

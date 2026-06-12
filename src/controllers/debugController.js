@@ -8,8 +8,8 @@ exports.getAllBookings = async (req, res) => {
     try {
         const connection = await db.getConnection();
         const [bookings] = await connection.query(
-            `SELECT b.id, b.user_id, b.showtime_id, b.seat_id, b.total_price, b.status, LENGTH(b.status) as status_length,
-                    b.booking_time, m.title, s.start_time, st.seat_number
+                `SELECT b.id, b.user_id, b.showtime_id, b.seat_id, b.total_price, b.status, LENGTH(b.status) as status_length,
+                    b.booking_time, m.title, DATE_FORMAT(s.start_time, '%Y-%m-%d %H:%i:%s') as start_time, st.seat_number
              FROM bookings b
              LEFT JOIN showtimes s ON b.showtime_id = s.id
              LEFT JOIN movies m ON s.movie_id = m.id
@@ -63,8 +63,8 @@ exports.getUserTicketsDebug = async (req, res) => {
 
         // Lấy vé của user
         const [tickets] = await connection.query(
-            `SELECT b.id, b.user_id, b.showtime_id, b.seat_id, b.total_price, b.status, 
-                    b.booking_time, m.title, m.poster_url, s.start_time, st.seat_number,
+                `SELECT b.id, b.user_id, b.showtime_id, b.seat_id, b.total_price, b.status, 
+                    b.booking_time, m.title, m.poster_url, DATE_FORMAT(s.start_time, '%Y-%m-%d %H:%i:%s') as start_time, st.seat_number,
                     s.movie_id, st.showtime_id
              FROM bookings b
              LEFT JOIN showtimes s ON b.showtime_id = s.id
@@ -92,7 +92,7 @@ exports.getAllShowtimes = async (req, res) => {
     try {
         const connection = await db.getConnection();
         const [showtimes] = await connection.query(
-            `SELECT s.id, s.movie_id, s.room_name, s.start_time, s.price, m.title
+            `SELECT s.id, s.movie_id, s.room_name, DATE_FORMAT(s.start_time, '%Y-%m-%d %H:%i:%s') as start_time, s.price, m.title
              FROM showtimes s
              LEFT JOIN movies m ON s.movie_id = m.id
              ORDER BY s.start_time DESC`

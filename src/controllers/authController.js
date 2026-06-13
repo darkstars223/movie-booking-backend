@@ -31,7 +31,7 @@ exports.login = async (req, res) => {
             user: { 
                 id: user.id, 
                 fullname: user.fullname, 
-                role: user.role // 'admin' hoặc 'customer'
+                role: user.role 
             } 
         });
     } catch (err) {

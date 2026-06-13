@@ -2,10 +2,10 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const db = require('../configs/db');
 require('dotenv').config();
 
-// Khởi tạo Gemini
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Helper: safe DB query wrapper
+
 const safeQuery = async (sql, params = []) => {
     try {
         const [rows] = await db.query(sql, params);
@@ -23,11 +23,11 @@ exports.chatWithAI = async (req, res) => {
     if (!userMessage) return res.status(400).json({ error: 'userMessage is required' });
 
     try {
-        // 1) Movie context (top N movies to include)
+      
         const movies = await safeQuery('SELECT id, title, genre, description FROM movies LIMIT 50') || [];
         const movieContext = movies.map(m => `- ${m.title} (${m.genre}): ${m.description}`).join('\n');
 
-        // 2) User preferences (if userId provided)
+       
         let prefText = '';
         if (userId) {
             const prefs = await safeQuery('SELECT * FROM user_preferences WHERE user_id = ?', [userId]);
@@ -37,7 +37,7 @@ exports.chatWithAI = async (req, res) => {
             }
         }
 
-        // 3) Recent booking history
+        
         let bookingText = '';
         if (userId) {
             const history = await safeQuery(`
@@ -54,10 +54,10 @@ exports.chatWithAI = async (req, res) => {
             }
         }
 
-        // 4) Build system instruction
-        const systemInstruction = `Bạn là trợ lý ảo cho rạp phim TTV. Trả lời thân thiện, chính xác trong phạm vi rạp phim ngoài việc đặt vé , cung cấp thông tin phim thì các câu hỏi khác không cần trả lời.\n${prefText}\n${bookingText}\nDanh sách phim hiện có:\n${movieContext}\nHãy trả lời ngắn gọn nếu chế độ short, hoặc chi tiết khi mode=verbose.`;
+         
+        const systemInstruction = `Bạn là trợ lý ảo cho rạp phim TTV. Trả lời thân thiện, chính xác trong phạm vi rạp phim. Ngoài việc cung cấp thông tin phim, đặt vé thì các câu hỏi khác không cần trả lời.\n${prefText}\n${bookingText}\nDanh sách phim hiện có:\n${movieContext}\nHãy trả lời ngắn gọn .`;
 
-        // 5) Call model
+         
         const model = genAI.getGenerativeModel({
             model: 'gemini-2.5-flash-lite',
             systemInstruction
@@ -67,7 +67,7 @@ exports.chatWithAI = async (req, res) => {
         const result = await model.generateContent(prompt);
         const aiReply = result?.response?.text ? result.response.text() : 'Xin lỗi, tôi không thể trả lời lúc này.';
 
-        // 6) Persist interaction
+         
         try {
             await db.query('INSERT INTO ai_interactions (user_id, user_query, ai_response, meta) VALUES (?, ?, ?, ?)', [userId || null, userMessage, aiReply, JSON.stringify({ mode })]);
         } catch (e) {
@@ -150,6 +150,29 @@ exports.getLogs = async (req, res) => {
         res.json({ logs: rows || [] });
     } catch (err) {
         console.error('Lỗi getLogs:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
+// GET /api/ai/showtimes?movieId=123
+exports.getShowtimesForAI = async (req, res) => {
+    const { movieId } = req.query;
+    if (!movieId) return res.status(400).json({ error: 'movieId is required' });
+
+    try {
+        const rows = await safeQuery(`
+            SELECT s.id, s.movie_id, s.start_time, s.price, s.available_seats, s.hall
+            FROM showtimes s
+            WHERE s.movie_id = ?
+            AND (s.start_time IS NULL OR s.start_time >= NOW())
+            ORDER BY s.start_time
+            LIMIT 100
+        `, [movieId]);
+
+        if (rows === null) return res.status(500).json({ error: 'DB error' });
+        res.json({ showtimes: rows });
+    } catch (err) {
+        console.error('Lỗi getShowtimesForAI:', err);
         res.status(500).json({ error: 'Server error' });
     }
 };

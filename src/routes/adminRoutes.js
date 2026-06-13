@@ -241,8 +241,8 @@ router.post('/showtimes/add', async (req, res) => {
             const capacity = theater[0].capacity;
             const seats = [];
             
-            // Tạo layout rạp phim thực tế (hàng A, B, C... với số ghế mỗi hàng)
-            const seatsPerRow = 10; // 10 ghế mỗi hàng
+            // Tạo layout rạp phim thực tế (hàng A, B, C)
+            const seatsPerRow = 10; 
             const numRows = Math.ceil(capacity / seatsPerRow);
             const rowLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
             
@@ -250,7 +250,7 @@ router.post('/showtimes/add', async (req, res) => {
             for (let row = 0; row < numRows && seatCount < capacity; row++) {
                 const rowLetter = rowLetters[row];
                 const seatsInThisRow = Math.min(seatsPerRow, capacity - seatCount);
-                const isVip = row > 0 ? 1 : 0; // Hàng A (row=0) là thường, hàng B+ là VIP
+                const isVip = row > 0 ? 1 : 0; 
                 
                 for (let seat = 1; seat <= seatsInThisRow; seat++) {
                     seats.push([showtimeId, `${rowLetter}${seat}`, false, isVip]);

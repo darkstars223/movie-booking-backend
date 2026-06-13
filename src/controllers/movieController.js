@@ -38,7 +38,7 @@ exports.getMovieById = async (req, res) => {
 
 // 3. Lấy danh sách suất chiếu của 1 bộ phim (Dùng cho Trang MovieDetail)
 exports.getShowtimesByMovie = async (req, res) => {
-    const { id } = req.params; // id của phim
+    const { id } = req.params; 
     try {
         const [rows] = await db.query(`
             SELECT

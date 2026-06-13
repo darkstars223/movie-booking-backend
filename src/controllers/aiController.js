@@ -55,7 +55,7 @@ exports.chatWithAI = async (req, res) => {
         }
 
          
-        const systemInstruction = `Bạn là trợ lý ảo cho rạp phim TTV. Trả lời thân thiện, chính xác trong phạm vi rạp phim. Ngoài việc cung cấp thông tin phim, đặt vé thì các câu hỏi khác không cần trả lời.\n${prefText}\n${bookingText}\nDanh sách phim hiện có:\n${movieContext}\nHãy trả lời ngắn gọn .`;
+        const systemInstruction = `Bạn là trợ lý ảo cho rạp phim TTV. Trả lời thân thiện, chính xác trong phạm vi rạp phim.  cung cấp thông tin phim, đặt vé, thời gian suất chiếu và giá vé cụ thể thì các câu hỏi ngoài phạm vi trang web không cần trả lời.\n${prefText}\n${bookingText}\nDanh sách phim hiện có:\n${movieContext}\nHãy trả lời ngắn gọn .`;
 
          
         const model = genAI.getGenerativeModel({

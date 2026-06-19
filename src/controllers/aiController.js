@@ -60,28 +60,52 @@ const invalidateMovieCache = () => {
 // =============================================
 const filterRelevantMovies = (movies, userMessage, limit = 8) => {
     const raw = userMessage.toLowerCase();
+    
+    // Tách từ khóa: Giữ lại từ có độ dài > 2 HOẶC từ có chứa ký tự số (ví dụ: "4", "13")
     const keywords = raw
         .split(/[\s,]+/)
-        .filter(k => k.length > 2)
-        .map(k => k.replace(/[^a-zàáâãèéêìíòóôõùúăđĩũơưạặắẵ0-9]/gi, ''));
+        .map(k => k.replace(/[^a-zàáâãèéêìíòóôõùúăđĩũơưạặắẵ0-9]/gi, ''))
+        .filter(k => k.length > 2 || /\d+/.test(k)); // Giữ lại nếu dài hoặc là số
 
     if (keywords.length === 0) return movies.slice(0, limit);
 
+    // Hàm xóa khoảng trắng để so sánh viết liền (ví dụ: "kungfupanda4")
+    const cleanSpaces = (str) => str.toLowerCase().replace(/\s+/g, '');
+    const rawNoSpaces = cleanSpaces(raw);
+
     const scored = movies.map(m => {
+        const titleLower = m.title.toLowerCase();
+        const titleNoSpaces = cleanSpaces(m.title);
         const haystack = `${m.title} ${m.genre} ${m.description || ''}`.toLowerCase();
+        const haystackNoSpaces = cleanSpaces(haystack);
+        
         let score = 0;
-        for (const k of keywords) {
-            if (haystack.includes(k)) score += (m.title.toLowerCase().includes(k) ? 3 : 1);
+
+        // 1. ƯU TIÊN CAO NHẤT: Nếu toàn bộ tên phim (xóa cách) xuất hiện trong câu hỏi hoặc ngược lại
+        if (rawNoSpaces.includes(titleNoSpaces) || titleNoSpaces.includes(rawNoSpaces)) {
+            score += 30; 
         }
+
+        // 2. Tính điểm theo từng từ khóa đơn lẻ
+        for (const k of keywords) {
+            if (haystack.includes(k) || haystackNoSpaces.includes(k)) {
+                // Nếu khớp trong tiêu đề thì điểm cao hơn khớp trong mô tả
+                score += (titleLower.includes(k) || titleNoSpaces.includes(k) ? 5 : 1);
+            }
+        }
+        
         return { ...m, _score: score };
     });
 
+    // Lọc ra các phim có điểm > 0 và sắp xếp điểm từ cao xuống thấp
     const relevant = scored
         .filter(m => m._score > 0)
         .sort((a, b) => b._score - a._score)
         .slice(0, limit);
 
-    return relevant.length >= 3 ? relevant : movies.slice(0, limit);
+    // Nếu tìm thấy bất kỳ phim nào khớp thực sự (dù chỉ 1 phim), hãy ưu tiên trả về danh sách đó 
+    // Thay vì điều kiện `>= 3` cũ dễ bị lọt lưới. Nếu hoàn toàn bằng 0 mới trả về mặc định.
+    return relevant.length > 0 ? relevant : movies.slice(0, limit);
 };
 
 // =============================================

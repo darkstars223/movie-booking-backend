@@ -91,23 +91,40 @@ exports.chatWithAI = async (req, res) => {
         }
 
         // 4. NÂNG CẤP SYSTEM INSTRUCTION: Thiết lập kỷ luật tối đa cho AI
-        const systemInstruction = `Bạn là trợ lý ảo thông minh của rạp phim TTV. Trả lời lịch sự, thân thiện và ngắn gọn.
-Dựa TUYỆT ĐỐI vào dữ liệu thực tế được cung cấp dưới đây để trả lời về thông tin phim, suất chiếu, phòng chiếu và GIÁ VÉ.
+            let systemInstruction = `Bạn là trợ lý AI thông minh của rạp phim TTV. Trả lời thân thiện, ngắn gọn, chính xác.
+    Chỉ hỗ trợ: tư vấn phim, đặt vé, suất chiếu, giá vé. Web chưa có hệ thống giảm giá voucher. Câu hỏi ngoài phạm vi rạp phim thì từ chối lịch sự.
 
-QUY TẮC AN TOÀN:
-- Nếu khách hỏi về giá vé hoặc lịch chiếu của phim KHÔNG CÓ trong danh sách bên dưới, bạn phải trả lời: "Hiện tại bộ phim này chưa có lịch chiếu hoặc giá vé cụ thể tại rạp TTV, bạn vui lòng theo dõi thêm trên website nhé!".
-- TUYỆT ĐỐI KHÔNG TỰ BỊA ĐẶT (NÓI PHÉT) RA MỘT CON SỐ GIÁ VÉ HOẶC GIỜ CHIẾU NẾU NÓ KHÔNG XUẤT HIỆN TRONG CONTEXT DƯỚI ĐÂY.
+    QUY TẮC QUAN TRỌNG VỀ TRA CỨU SUẤT CHIẾU VÀ GIÁ VÉ:
+    - Khi khách hàng hỏi về giá vé, suất chiếu, lịch chiếu hoặc phòng chiếu của một bộ phim (ví dụ: "giá vé phim dune", "lịch chiếu phim cá mập"), bạn phải TỰ ĐỐI CHIẾU tên phim họ gõ với danh sách "Phim đang chiếu liên quan" ở phía dưới để tìm ra [ID: ...] tương ứng.
+    - Tuyệt đối KHÔNG ĐƯỢC hỏi khách hàng xin "ID phim". Khách hàng không biết ID phim là gì.
+    - Sau khi tự tìm thấy ID từ danh sách, bạn phải LẬP TỨC kích hoạt công cụ 'getShowtimesForMovie' với movieId đó để lấy dữ liệu thực tế.
+    - Nếu không tìm thấy phim nào khớp trong danh sách dưới đây, hãy lịch sự báo rạp hiện chưa có lịch chiếu phim này.
 
-${prefText}
-${bookingText}
+    Format câu trả lời: dùng xuống dòng cho dễ đọc, emoji phù hợp, không quá 300 từ.${prefText}${bookingText}
 
-Danh sách phim tại rạp:
-${cachedMovieContext || '- Chưa có danh sách phim.'}
+    Phim đang chiếu liên quan (${relevantMovies.length}/${allMovies.length} phim):
+    ${movieContext}`;
 
-Lịch chiếu & Giá vé thực tế tại các phòng (Cập nhật mới nhất):
-${cachedShowtimeContext || '- Hiện tại chưa có suất chiếu nào được lên lịch.'}
+            // If user likely asks about price/showtimes, proactively fetch showtimes for top match
+            const intentShowtime = /giá|suất|lịch|chiếu|giá vé|vé/i.test(userMessage);
+            let autoShowtimesText = '';
+            if (intentShowtime && relevantMovies.length > 0) {
+                const top = relevantMovies[0];
+                console.log(`[AI Debug] user asks about showtimes/prices. Top match: ${top.id} - ${top.title}`);
+                const liveShowtimes = await fetchShowtimesInternal(top.id);
+                if (liveShowtimes && liveShowtimes.length) {
+                    autoShowtimesText = '\n\nDữ liệu suất chiếu (tự động cung cấp cho phim khớp nhất):\n' +
+                        liveShowtimes.map(s => `• [${s.id}] ${s.start_time} - ${s.hall || 'phòng'} - ${s.price || 'N/A'} đ - trống: ${s.available_seats || 0}`).join('\n');
+                    console.log('[AI Debug] autoShowtimes fetched:', liveShowtimes.length, 'items for', top.id);
+                } else {
+                    console.log('[AI Debug] no live showtimes found for', top.id);
+                }
+            }
 
-Hãy trả lời đúng trọng tâm câu hỏi, xuống dòng rõ ràng cho dễ đọc.`;
+            // Append any auto-showtimes info to system instruction so the model sees live data
+            if (autoShowtimesText) {
+                systemInstruction += autoShowtimesText;
+            }
 
         // 5. GỌI BẢN TIN AI
         const model = genAI.getGenerativeModel({

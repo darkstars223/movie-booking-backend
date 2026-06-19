@@ -25,14 +25,14 @@ exports.chatWithAI = async (req, res) => {
     try {
         // 1. Lấy danh sách phim hiện có
         const movies = await safeQuery('SELECT id, title, genre, description FROM movies LIMIT 50') || [];
-        
+
         // 2. Lấy danh sách tất cả suất chiếu sắp diễn ra để AI biết thông tin lịch chiếu & giá vé
         const showtimes = await safeQuery(`
-            SELECT movie_id, start_time, price, available_seats, hall
-            FROM showtimes
-            WHERE start_time >= NOW()
-            ORDER BY start_time ASC
-        `) || [];
+        SELECT movie_id, start_time, price, room_name
+        FROM showtimes
+        WHERE start_time >= NOW()
+        ORDER BY start_time ASC
+`) || [];
 
         // Gom nhóm các suất chiếu theo movie_id để dễ map vào danh sách phim
         const showtimesMap = {};
@@ -40,20 +40,20 @@ exports.chatWithAI = async (req, res) => {
             if (!showtimesMap[s.movie_id]) {
                 showtimesMap[s.movie_id] = [];
             }
-            // Định dạng thời gian cho AI dễ đọc hiểu (Ví dụ: 12:19 20/06)
-            const timeStr = s.start_time 
-                ? new Date(s.start_time).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) 
+            // Định dạng thời gian cho AI dễ đọc hiểu
+            const timeStr = s.start_time
+                ? new Date(s.start_time).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
                 : 'Chưa rõ';
-            
-            showtimesMap[s.movie_id].push(`+ Suất: ${timeStr} | Giá vé: ${s.price.toLocaleString('vi-VN')}đ | Phòng: ${s.hall} (Còn ${s.available_seats} ghế)`);
-        });
 
+            // Thay s.hall thành s.room_name và bỏ bớt phần available_seats không có trong bảng
+            showtimesMap[s.movie_id].push(`+ Suất: ${timeStr} | Giá vé: ${Number(s.price).toLocaleString('vi-VN')}đ | Phòng: ${s.room_name}`);
+        });
         // 3. Kết hợp thông tin phim và lịch chiếu/giá vé vào movieContext
         const movieContext = movies.map(m => {
             const listShowtimes = showtimesMap[m.id] && showtimesMap[m.id].length > 0
                 ? showtimesMap[m.id].join('\n    ')
                 : '+ Hiện tại chưa có suất chiếu tiếp theo hoặc đã hết vé.';
-            
+
             return `- Tên phim: ${m.title} (${m.genre})\n  Mô tả: ${m.description}\n  Lịch chiếu & Giá vé:\n    ${listShowtimes}`;
         }).join('\n\n');
 

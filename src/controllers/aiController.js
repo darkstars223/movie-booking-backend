@@ -131,8 +131,8 @@ exports.chatWithAI = async (req, res) => {
 
         // 4. Build system prompt gọn
         const systemInstruction = `Bạn là trợ lý AI của rạp phim TTV. Trả lời thân thiện, ngắn gọn, chính xác.
-Chỉ hỗ trợ: tư vấn phim, đặt vé, suất chiếu, giá vé. Câu hỏi ngoài phạm vi rạp phim thì từ chối lịch sự.
-Format câu trả lời: dùng xuống dòng cho dễ đọc, emoji phù hợp, không quá 300 từ.${prefText}${bookingText}
+        Chỉ hỗ trợ: tư vấn phim, đặt vé, suất chiếu, giá vé.web chưa có hệ thống giảm giá voucher. Câu hỏi ngoài phạm vi rạp phim thì từ chối lịch sự.
+            Format câu trả lời: dùng xuống dòng cho dễ đọc, emoji phù hợp, không quá 300 từ.${prefText}${bookingText}
 
 Phim đang chiếu liên quan (${relevantMovies.length}/${allMovies.length} phim):
 ${movieContext}`;

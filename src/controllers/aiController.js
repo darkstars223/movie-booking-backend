@@ -69,7 +69,6 @@ const filterRelevantMovies = (movies, userMessage, limit = 8) => {
         .sort((a, b) => b._score - a._score)
         .slice(0, limit);
 
-    // Fallback: nếu không match, trả phim ngẫu nhiên
     return relevant.length >= 3 ? relevant : movies.slice(0, limit);
 };
 
@@ -80,9 +79,22 @@ const buildMovieContext = (movies) =>
     movies
         .map(m => {
             const desc = (m.description || '').slice(0, 120).replace(/\n/g, ' ');
-            return `• ${m.title} [${m.genre}]: ${desc}`;
+            return `• [ID: ${m.id}] ${m.title} [${m.genre}]: ${desc}`; // Cung cấp ID để AI biết đường gọi Tool
         })
         .join('\n');
+
+// Hàm thực thi logic lấy suất chiếu trực tiếp từ DB cho Function Calling
+const fetchShowtimesInternal = async (movieId) => {
+    const rows = await safeQuery(`
+        SELECT s.id, s.movie_id, s.start_time, s.price, s.available_seats, s.hall
+        FROM showtimes s
+        WHERE s.movie_id = ?
+          AND (s.start_time IS NULL OR s.start_time >= NOW())
+        ORDER BY s.start_time
+        LIMIT 50
+    `, [movieId]);
+    return rows || [];
+};
 
 // =============================================
 // POST /api/ai/chat
@@ -131,19 +143,68 @@ exports.chatWithAI = async (req, res) => {
 
         // 4. Build system prompt gọn
         const systemInstruction = `Bạn là trợ lý AI của rạp phim TTV. Trả lời thân thiện, ngắn gọn, chính xác.
-        Chỉ hỗ trợ: tư vấn phim, đặt vé, suất chiếu, giá vé.web chưa có hệ thống giảm giá voucher. Câu hỏi ngoài phạm vi rạp phim thì từ chối lịch sự.
-            Format câu trả lời: dùng xuống dòng cho dễ đọc, emoji phù hợp, không quá 300 từ.${prefText}${bookingText}
+Chỉ hỗ trợ: tư vấn phim, đặt vé, suất chiếu, giá vé. Web chưa có hệ thống giảm giá voucher. Câu hỏi ngoài phạm vi rạp phim thì từ chối lịch sự.
+Khi khách hàng hỏi về giá vé, suất chiếu hoặc lịch chiếu của một phim cụ thể, bạn BẮT BUỘC phải sử dụng công cụ \`getShowtimesForMovie\` để tra cứu dữ liệu thực tế. Tuyệt đối không tự bịa ra giá vé hoặc lịch chiếu.
+Format câu trả lời: dùng xuống dòng cho dễ đọc, emoji phù hợp, không quá 300 từ.${prefText}${bookingText}
 
 Phim đang chiếu liên quan (${relevantMovies.length}/${allMovies.length} phim):
 ${movieContext}`;
 
-        // 5. Gọi Gemini
+        // Định nghĩa Tool (Function Declaration) cho Gemini
+        const showtimesTool = {
+            functionDeclarations: [
+                {
+                    name: "getShowtimesForMovie",
+                    description: "Lấy danh sách các suất chiếu, lịch chiếu, giá vé, số ghế trống và phòng chiếu của một bộ phim dựa theo ID phim.",
+                    parameters: {
+                        type: "OBJECT",
+                        properties: {
+                            movieId: {
+                                type: "NUMBER",
+                                description: "ID của bộ phim cần tra cứu suất chiếu và giá vé.",
+                            },
+                        },
+                        required: ["movieId"],
+                    },
+                },
+            ],
+        };
+
+        // 5. Khởi tạo Model với Tools
         const model = genAI.getGenerativeModel({
             model: 'gemini-2.5-flash-lite',
             systemInstruction,
+            tools: [showtimesTool], 
         });
 
-        const result = await model.generateContent(userMessage);
+        // Bắt đầu phiên chat tự động xử lý Function Calling
+        const chat = model.startChat();
+        let result = await chat.sendMessage(userMessage);
+        
+        // Kiểm tra xem AI có yêu cầu gọi hàm tra cứu lịch/giá vé dưới DB không
+        const functionCalls = result.response.functionCalls;
+        if (functionCalls && functionCalls.length > 0) {
+            const call = functionCalls[0];
+            
+            if (call.name === "getShowtimesForMovie") {
+                const { movieId } = call.args;
+                console.log(`[AI Tool] Kích hoạt tra cứu suất chiếu cho movieId: ${movieId}`);
+                
+                // Truy vấn dữ liệu thực tế (bảo gồm giá 20k, 60k...) từ database
+                const dbShowtimes = await fetchShowtimesInternal(movieId);
+                
+                // Trả kết quả DB ngược lại cho AI xử lý tiếp
+                result = await chat.sendMessage([
+                    {
+                        functionResponse: {
+                            name: "getShowtimesForMovie",
+                            response: { showtimes: dbShowtimes }
+                        }
+                    }
+                ]);
+            }
+        }
+
         const aiReply = result?.response?.text?.()
             || 'Xin lỗi, tôi không thể trả lời lúc này. Bạn thử lại nhé!';
 
@@ -267,23 +328,14 @@ exports.getLogs = async (req, res) => {
 };
 
 // =============================================
-// GET /api/ai/showtimes?movieId=123
+// GET /api/ai/showtimes?movieId=123 (Endpoint dành cho frontend gọi lẻ nếu cần)
 // =============================================
 exports.getShowtimesForAI = async (req, res) => {
     const { movieId } = req.query;
     if (!movieId) return res.status(400).json({ error: 'movieId is required' });
 
     try {
-        const rows = await safeQuery(`
-            SELECT s.id, s.movie_id, s.start_time, s.price, s.available_seats, s.hall
-            FROM showtimes s
-            WHERE s.movie_id = ?
-              AND (s.start_time IS NULL OR s.start_time >= NOW())
-            ORDER BY s.start_time
-            LIMIT 100
-        `, [movieId]);
-
-        if (rows === null) return res.status(500).json({ error: 'DB error' });
+        const rows = await fetchShowtimesInternal(movieId);
         res.json({ showtimes: rows });
     } catch (err) {
         console.error('Lỗi getShowtimesForAI:', err);
@@ -291,5 +343,4 @@ exports.getShowtimesForAI = async (req, res) => {
     }
 };
 
-// Export cache invalidation cho dùng ở movieController nếu cần
 exports.invalidateMovieCache = invalidateMovieCache;

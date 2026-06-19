@@ -2,7 +2,19 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const db = require('../configs/db');
 require('dotenv').config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Lazy initialization for GoogleGenerativeAI so we can detect missing API key
+let genAI = null;
+const getGenAI = () => {
+    if (genAI) return genAI;
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+        const msg = 'GEMINI_API_KEY is not set in environment';
+        console.error('[AI Init] ' + msg);
+        throw new Error(msg);
+    }
+    genAI = new GoogleGenerativeAI(key);
+    return genAI;
+};
 
 // =============================================
 // CACHE LAYER - tránh query DB mỗi request
@@ -106,6 +118,9 @@ exports.chatWithAI = async (req, res) => {
     }
 
     try {
+        // Ensure AI client available
+        const genAIclient = getGenAI();
+
         // 1. Lấy phim từ cache, lọc liên quan
         const allMovies = await getCachedMovies();
         const relevantMovies = filterRelevantMovies(allMovies, userMessage);
@@ -177,7 +192,8 @@ ${movieContext}`;
         };
 
         // 5. Khởi tạo Model với Tools
-        const model = genAI.getGenerativeModel({
+        // create model via client
+        const model = genAIclient.getGenerativeModel({
             model: 'gemini-2.5-flash-lite',
             systemInstruction,
             tools: [showtimesTool], 
@@ -185,7 +201,13 @@ ${movieContext}`;
 
         // Bắt đầu phiên chat tự động xử lý Function Calling
         const chat = model.startChat();
-        let result = await chat.sendMessage(userMessage);
+        let result;
+        try {
+            result = await chat.sendMessage(userMessage);
+        } catch (errSend) {
+            console.error('[AI] sendMessage failed:', errSend?.message || errSend);
+            throw errSend;
+        }
         
         // Kiểm tra xem AI có yêu cầu gọi hàm tra cứu lịch/giá vé dưới DB không
         const functionCalls = result.response.functionCalls;
@@ -211,19 +233,24 @@ ${movieContext}`;
             }
         }
 
-        const aiReply = result?.response?.text?.()
-            || 'Xin lỗi, tôi không thể trả lời lúc này. Bạn thử lại nhé!';
+        const aiReply = (typeof result?.response?.text === 'function') ? result.response.text() : (result?.response?.text || '');
+        const finalReply = aiReply || 'Xin lỗi, tôi không thể trả lời lúc này. Bạn thử lại nhé!';
 
         // 6. Lưu log (không block response)
         db.query(
             'INSERT INTO ai_interactions (user_id, user_query, ai_response, meta) VALUES (?, ?, ?, ?)',
-            [userId || null, userMessage, aiReply, JSON.stringify({ movies_used: relevantMovies.length })]
+            [userId || null, userMessage, finalReply, JSON.stringify({ movies_used: relevantMovies.length })]
         ).catch(e => console.warn('[AI Log] Không lưu được:', e.message));
 
-        res.json({ reply: aiReply });
+        res.json({ reply: finalReply });
 
     } catch (error) {
-        console.error('Lỗi chatWithAI:', error);
+        // Log full error for diagnosis
+        console.error('Lỗi chatWithAI:', error && (error.stack || error));
+        // If error indicates missing API key, return clear message
+        if (String(error.message || '').includes('GEMINI_API_KEY')) {
+            return res.status(500).json({ reply: 'Lỗi cấu hình AI: GEMINI_API_KEY chưa được thiết lập.' });
+        }
         res.status(500).json({ reply: 'Hệ thống AI đang bận, bạn thử lại sau nhé! 🙏' });
     }
 };

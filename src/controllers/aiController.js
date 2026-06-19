@@ -4,14 +4,14 @@ require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Các biến phục vụ Caching toàn cục (Giúp giảm tải DB khi nhiều người truy vấn liên tục)
+// Cache toàn cục chống nghẽn DB
 let cachedMovieContext = null;
 let lastMovieCacheTime = 0;
-const MOVIE_CACHE_TTL = 15 * 60 * 1000; // Cache danh sách phim trong 15 phút
+const MOVIE_CACHE_TTL = 15 * 60 * 1000; // 15 phút
 
 let cachedShowtimeContext = null;
 let lastShowtimeCacheTime = 0;
-const SHOWTIME_CACHE_TTL = 2 * 60 * 1000; // Cache lịch chiếu/giá vé trong 2 phút (để cập nhật vé/giờ liên tục)
+const SHOWTIME_CACHE_TTL = 2 * 60 * 1000; // 2 phút
 
 const safeQuery = async (sql, params = []) => {
     try {
@@ -32,35 +32,40 @@ exports.chatWithAI = async (req, res) => {
     try {
         const now = Date.now();
 
-        // 1. TỐI ƯU CACHE DANH SÁCH PHIM (Tránh quét DB liên tục)
+        // 1. LẤY DANH SÁCH PHIM (Có cache)
         if (!cachedMovieContext || (now - lastMovieCacheTime > MOVIE_CACHE_TTL)) {
             const movies = await safeQuery('SELECT id, title, genre, description FROM movies LIMIT 50') || [];
             cachedMovieContext = movies.map(m => `- ${m.title} (${m.genre}): ${m.description}`).join('\n');
             lastMovieCacheTime = now;
         }
 
-        // 2. SỬA LỖI GIÁ VÉ: CACHE LỊCH CHIẾU & GIÁ VÉ THỰC TẾ TỪ DB
+        // 2. SỬA LỖI GIÁ VÉ/LỊCH CHIẾU: Ép cứng múi giờ Việt Nam bẻ gãy lỗi lệch giờ server
         if (!cachedShowtimeContext || (now - lastShowtimeCacheTime > SHOWTIME_CACHE_TTL)) {
+            // Lấy ngày hôm nay định dạng YYYY-MM-DD theo đúng giờ Việt Nam (GMT+7)
+            const todayVN = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+
+            // Thay vì dùng NOW(), dùng DATE(s.start_time) >= ? để lấy toàn bộ lịch chiếu từ hôm nay trở đi
             const showtimes = await safeQuery(`
                 SELECT s.movie_id, m.title, s.start_time, s.price, s.hall, s.available_seats
                 FROM showtimes s
                 JOIN movies m ON s.movie_id = m.id
-                WHERE s.start_time >= NOW()
-                ORDER BY s.start_time
-                LIMIT 100
-            `) || [];
+                WHERE DATE(s.start_time) >= ?
+                ORDER BY s.start_time ASC
+                LIMIT 150
+            `, [todayVN]) || [];
             
             cachedShowtimeContext = showtimes.map(s => {
                 const timeStr = new Date(s.start_time).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-                return `- Phim "${s.title}": Suất chiếu lúc ${timeStr} | Phòng: ${s.hall} | Giá vé gốc: ${Number(s.price).toLocaleString('vi-VN')} VNĐ | Còn ${s.available_seats} ghế`;
+                return `- Phim "${s.title}": Suất chiếu lúc ${timeStr} | Phòng: ${s.hall} | Giá vé: ${Number(s.price).toLocaleString('vi-VN')} VNĐ | Còn ${s.available_seats} ghế`;
             }).join('\n');
+            
             lastShowtimeCacheTime = now;
         }
 
         let prefText = '';
         let bookingText = '';
 
-        // 3. TỐI ƯU HIỆU NĂNG: CHẠY SONG SONG CÁC TRUY VẤN CỦA USER BẰNG Promise.all
+        // 3. TỐI ƯU SONG SONG: Lấy thông tin user cùng lúc
         if (userId) {
             const [prefs, history] = await Promise.all([
                 safeQuery('SELECT * FROM user_preferences WHERE user_id = ?', [userId]),
@@ -85,41 +90,40 @@ exports.chatWithAI = async (req, res) => {
             }
         }
 
-        // 4. THIẾT LẬP CÂU LỆNH HỆ THỐNG NGHIÊM NGẶT (Ràng buộc dữ liệu giá vé)
-        const systemInstruction = `Bạn là trợ lý ảo cho rạp phim TTV. Trả lời thân thiện, chính xác trong phạm vi rạp phim.
-Dựa TUYỆT ĐỐI vào dữ liệu thực tế được cung cấp bên dưới để trả lời về giá vé, giờ chiếu và thông tin phim. 
-NẾU dữ liệu bên dưới không có thông tin về bộ phim hoặc giá vé mà người dùng hỏi, hãy lịch sự thông báo "Hiện tại phim này chưa có lịch chiếu hoặc giá vé cụ thể, bạn vui lòng theo dõi thêm trên website nhé!". 
-TUYỆT ĐỐI KHÔNG TỰ BỊA ĐẶT (NÓI PHÉT) RA GIÁ VÉ HOẶC GIỜ CHIẾU KHÔNG CÓ TRONG CONTEXT.
+        // 4. NÂNG CẤP SYSTEM INSTRUCTION: Thiết lập kỷ luật tối đa cho AI
+        const systemInstruction = `Bạn là trợ lý ảo thông minh của rạp phim TTV. Trả lời lịch sự, thân thiện và ngắn gọn.
+Dựa TUYỆT ĐỐI vào dữ liệu thực tế được cung cấp dưới đây để trả lời về thông tin phim, suất chiếu, phòng chiếu và GIÁ VÉ.
+
+QUY TẮC AN TOÀN:
+- Nếu khách hỏi về giá vé hoặc lịch chiếu của phim KHÔNG CÓ trong danh sách bên dưới, bạn phải trả lời: "Hiện tại bộ phim này chưa có lịch chiếu hoặc giá vé cụ thể tại rạp TTV, bạn vui lòng theo dõi thêm trên website nhé!".
+- TUYỆT ĐỐI KHÔNG TỰ BỊA ĐẶT (NÓI PHÉT) RA MỘT CON SỐ GIÁ VÉ HOẶC GIỜ CHIẾU NẾU NÓ KHÔNG XUẤT HIỆN TRONG CONTEXT DƯỚI ĐÂY.
 
 ${prefText}
 ${bookingText}
 
-Danh sách phim hiện có:
-${cachedMovieContext}
+Danh sách phim tại rạp:
+${cachedMovieContext || '- Chưa có danh sách phim.'}
 
-Lịch chiếu và Giá vé thực tế hiện tại:
-${cachedShowtimeContext || '- Hiện tại hệ thống chưa cập nhật lịch chiếu mới.'}
+Lịch chiếu & Giá vé thực tế tại các phòng (Cập nhật mới nhất):
+${cachedShowtimeContext || '- Hiện tại chưa có suất chiếu nào được lên lịch.'}
 
-Hãy trả lời ngắn gọn, chính xác theo dữ liệu và format cách dòng cho đẹp mắt.`;
+Hãy trả lời đúng trọng tâm câu hỏi, xuống dòng rõ ràng cho dễ đọc.`;
 
-        // 5. GỌI GEMINI API XỬ LÝ PROMPT
+        // 5. GỌI BẢN TIN AI
         const model = genAI.getGenerativeModel({
             model: 'gemini-2.5-flash-lite',
             systemInstruction
         });
 
         const result = await model.generateContent(userMessage);
-        const aiReply = result?.response?.text ? result.response.text() : 'Xin lỗi, tôi không thể trả lời lúc này.';
+        const aiReply = result?.response?.text ? result.response.text() : 'Xin lỗi, tôi gặp chút sự cố, bạn thử lại nhé!';
 
-        // 6. TỐI ƯU HOÀN TOÀN: LƯU LOG BẤT ĐỒNG BỘ (FIRE-AND-FORGET)
-        // Không dùng 'await' ở đây, giúp trả kết quả về cho client ngay lập tức mà không bị block bởi DB write
+        // 6. GHI LOG CHẠY NGẦM (Không block tiến trình của người dùng)
         db.query('INSERT INTO ai_interactions (user_id, user_query, ai_response, meta) VALUES (?, ?, ?, ?)', 
             [userId || null, userMessage, aiReply, JSON.stringify({ mode })]
-        ).catch(e => {
-            console.warn('Không thể lưu tương tác AI:', e.message);
-        });
+        ).catch(e => console.warn('Lỗi ghi log AI ngầm:', e.message));
 
-        // Trả phản hồi ngay cho người dùng
+        // Trả kết quả ngay lập tức
         res.json({ reply: aiReply });
 
     } catch (error) {
@@ -157,11 +161,10 @@ exports.updatePreferences = async (req, res) => {
     }
 };
 
-// GET /api/ai/recommendations/:userId (Đã được tối ưu Promise.all)
+// GET /api/ai/recommendations/:userId (Đã tối ưu Promise.all xử lý đa luồng)
 exports.recommendations = async (req, res) => {
     const { userId } = req.params;
     try {
-        // Tối ưu chạy song song 3 câu lệnh lấy dữ liệu để tính score
         const [prefs, moviesResult, bookedResult] = await Promise.all([
             userId ? safeQuery('SELECT * FROM user_preferences WHERE user_id = ?', [userId]) : Promise.resolve(null),
             safeQuery('SELECT id, title, genre, poster_url FROM movies'),
@@ -172,7 +175,6 @@ exports.recommendations = async (req, res) => {
         const movies = moviesResult || [];
         const bookedIds = new Set((bookedResult || []).map(r => r.id));
 
-        // Tính điểm gợi ý phim
         const scored = movies.map(m => {
             let score = 0;
             const genres = (m.genre || '').toLowerCase().split(',').map(s => s.trim());

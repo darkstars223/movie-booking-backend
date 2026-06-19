@@ -142,9 +142,15 @@ exports.chatWithAI = async (req, res) => {
         }
 
         // 4. Build system prompt gọn
-        const systemInstruction = `Bạn là trợ lý AI của rạp phim TTV. Trả lời thân thiện, ngắn gọn, chính xác.
+        const systemInstruction = `Bạn là trợ lý AI thông minh của rạp phim TTV. Trả lời thân thiện, ngắn gọn, chính xác.
 Chỉ hỗ trợ: tư vấn phim, đặt vé, suất chiếu, giá vé. Web chưa có hệ thống giảm giá voucher. Câu hỏi ngoài phạm vi rạp phim thì từ chối lịch sự.
-Khi khách hàng hỏi về giá vé, suất chiếu hoặc lịch chiếu của một phim cụ thể, bạn BẮT BUỘC phải sử dụng công cụ \`getShowtimesForMovie\` để tra cứu dữ liệu thực tế. Tuyệt đối không tự bịa ra giá vé hoặc lịch chiếu.
+
+QUY TẮC QUAN TRỌNG VỀ TRA CỨU SUẤT CHIẾU VÀ GIÁ VÉ:
+- Khi khách hàng hỏi về giá vé, suất chiếu, lịch chiếu hoặc phòng chiếu của một bộ phim (ví dụ: "giá vé phim dune", "lịch chiếu phim cá mập"), bạn phải TỰ ĐỐI CHIẾU tên phim họ gõ với danh sách "Phim đang chiếu liên quan" ở phía dưới để tìm ra [ID: ...] tương ứng.
+- Tuyệt đối KHÔNG ĐƯỢC hỏi khách hàng xin "ID phim". Khách hàng không biết ID phim là gì.
+- Sau khi tự tìm thấy ID từ danh sách, bạn phải LẬP TỨC kích hoạt công cụ \`getShowtimesForMovie\` với movieId đó để lấy dữ liệu thực tế.
+- Nếu không tìm thấy phim nào khớp trong danh sách dưới đây, hãy lịch sự báo rạp hiện chưa có lịch chiếu phim này.
+
 Format câu trả lời: dùng xuống dòng cho dễ đọc, emoji phù hợp, không quá 300 từ.${prefText}${bookingText}
 
 Phim đang chiếu liên quan (${relevantMovies.length}/${allMovies.length} phim):

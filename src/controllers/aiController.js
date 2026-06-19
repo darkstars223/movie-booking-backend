@@ -1,10 +1,12 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const db = require('../configs/db');
+const NodeCache = require("node-cache");
 require('dotenv').config();
-
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Khởi tạo bộ đệm Cache - Thời gian sống mặc định (stdTTL) là 5 phút (300 giây)
+const appCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
 const safeQuery = async (sql, params = []) => {
     try {
@@ -16,6 +18,80 @@ const safeQuery = async (sql, params = []) => {
     }
 };
 
+// ==========================================
+// 🛠️ CÁC HÀM TRUY VẤN DỮ LIỆU CÓ TÍCH HỢP CACHE
+// ==========================================
+
+// 1. Lấy lịch chiếu kèm giá vé (Cache 3 phút)
+const getCachedShowtimesContext = async () => {
+    const cacheKey = "ai_showtimes_context";
+    
+    // Nếu có dữ liệu trong cache thì trả về luôn, không truy vấn DB
+    if (appCache.has(cacheKey)) {
+        return appCache.get(cacheKey);
+    }
+
+    // Nếu không có, tiến hành truy vấn DB
+    const activeMovies = await safeQuery(`
+        SELECT DISTINCT m.id, m.title, m.genre 
+        FROM movies m
+        JOIN showtimes s ON m.id = s.movie_id
+        WHERE s.start_time >= NOW()
+        LIMIT 10
+    `) || [];
+
+    const showtimes = await safeQuery(`
+        SELECT movie_id, start_time, price, room_name
+        FROM showtimes
+        WHERE start_time >= NOW()
+        ORDER BY start_time ASC
+        LIMIT 30
+    `) || [];
+
+    const showtimesMap = {};
+    showtimes.forEach(s => {
+        if (!showtimesMap[s.movie_id]) showtimesMap[s.movie_id] = [];
+        const timeStr = new Date(s.start_time).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+        showtimesMap[s.movie_id].push(`+ ${timeStr} | Giá: ${Number(s.price).toLocaleString('vi-VN')}đ | Phòng: ${s.room_name}`);
+    });
+
+    const context = activeMovies.map(m => {
+        const list = showtimesMap[m.id] ? showtimesMap[m.id].join('\n    ') : '+ Hết vé';
+        return `- Phim: ${m.title}\n  Suất:\n    ${list}`;
+    }).join('\n\n');
+
+    // Lưu kết quả vào Cache trong 180 giây (3 phút)
+    appCache.set(cacheKey, context, 180);
+    return context;
+};
+
+// 2. Lấy danh sách phim và mô tả ngắn (Cache 10 phút vì danh mục phim ít thay đổi)
+const getCachedMoviesContext = async () => {
+    const cacheKey = "ai_movies_list_context";
+
+    if (appCache.has(cacheKey)) {
+        return appCache.get(cacheKey);
+    }
+
+    const movies = await safeQuery(`
+        SELECT id, title, genre, LEFT(description, 100) as short_desc 
+        FROM movies 
+        ORDER BY id DESC 
+        LIMIT 10
+    `) || [];
+    
+    const context = movies.map(m => `- Phim: ${m.title} (${m.genre})\n  Tóm tắt: ${m.short_desc}...`).join('\n');
+
+    // Phim ít thay đổi nên lưu cache lâu hơn: 600 giây (10 phút)
+    appCache.set(cacheKey, context, 600);
+    return context;
+};
+
+
+// ==========================================
+// 🚀 ENDPOINTS API CONTROLLERS
+// ==========================================
+
 // POST /api/ai/chat
 exports.chatWithAI = async (req, res) => {
     const { userId, userMessage, mode = 'short' } = req.body;
@@ -23,81 +99,63 @@ exports.chatWithAI = async (req, res) => {
     if (!userMessage) return res.status(400).json({ error: 'userMessage is required' });
 
     try {
-        // 1. Lấy danh sách phim hiện có
-        const movies = await safeQuery('SELECT id, title, genre, description FROM movies LIMIT 50') || [];
+        let movieContext = '';
+        const cleanMsg = userMessage.toLowerCase();
 
-        // 2. Lấy danh sách tất cả suất chiếu sắp diễn ra để AI biết thông tin lịch chiếu & giá vé
-        const showtimes = await safeQuery(`
-        SELECT movie_id, start_time, price, room_name
-        FROM showtimes
-        WHERE start_time >= NOW()
-        ORDER BY start_time ASC
-`) || [];
+        // --- BƯỚC 1: PHÂN LOẠI Ý ĐỊNH USER & LẤY CONTEXT TỪ CACHE ---
+        
+        // Nhóm câu hỏi về lịch chiếu, suất chiếu, giá vé
+        if (cleanMsg.includes('lịch chiếu') || cleanMsg.includes('suất chiếu') || cleanMsg.includes('giá vé') || cleanMsg.includes('mấy giờ') || cleanMsg.includes('bao nhiêu tiền')) {
+            movieContext = await getCachedShowtimesContext();
+        } 
+        // Nhóm câu hỏi tìm kiếm phim, tư vấn phim đang có
+        else if (cleanMsg.includes('phim gì') || cleanMsg.includes('tư vấn') || cleanMsg.includes('gợi ý') || cleanMsg.includes('tìm phim') || cleanMsg.includes('đang chiếu')) {
+            movieContext = await getCachedMoviesContext();
+        } 
+        // Nhóm câu hỏi chào hỏi thông thường hoặc ngoài lề
+        else {
+            movieContext = "Hiện tại người dùng đang trao đổi thông tin chung, hãy trả lời thân thiện trên tư cách trợ lý rạp phim TTV.";
+        }
 
-        // Gom nhóm các suất chiếu theo movie_id để dễ map vào danh sách phim
-        const showtimesMap = {};
-        showtimes.forEach(s => {
-            if (!showtimesMap[s.movie_id]) {
-                showtimesMap[s.movie_id] = [];
-            }
-            // Định dạng thời gian cho AI dễ đọc hiểu
-            const timeStr = s.start_time
-                ? new Date(s.start_time).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
-                : 'Chưa rõ';
-
-            // Thay s.hall thành s.room_name và bỏ bớt phần available_seats không có trong bảng
-            showtimesMap[s.movie_id].push(`+ Suất: ${timeStr} | Giá vé: ${Number(s.price).toLocaleString('vi-VN')}đ | Phòng: ${s.room_name}`);
-        });
-        // 3. Kết hợp thông tin phim và lịch chiếu/giá vé vào movieContext
-        const movieContext = movies.map(m => {
-            const listShowtimes = showtimesMap[m.id] && showtimesMap[m.id].length > 0
-                ? showtimesMap[m.id].join('\n    ')
-                : '+ Hiện tại chưa có suất chiếu tiếp theo hoặc đã hết vé.';
-
-            return `- Tên phim: ${m.title} (${m.genre})\n  Mô tả: ${m.description}\n  Lịch chiếu & Giá vé:\n    ${listShowtimes}`;
-        }).join('\n\n');
-
-        // Lấy thông tin sở thích người dùng (nếu có)
+        // --- BƯỚC 2: TRUY VẤN THÔNG TIN CÁ NHÂN USER (KHÔNG CACHE VÌ MỖI USER MỘT KHÁC) ---
         let prefText = '';
         if (userId) {
-            const prefs = await safeQuery('SELECT * FROM user_preferences WHERE user_id = ?', [userId]);
+            const prefs = await safeQuery('SELECT genres, language FROM user_preferences WHERE user_id = ?', [userId]);
             if (prefs && prefs.length > 0) {
-                const p = prefs[0];
-                prefText = `User preferences: genres=${p.genres || ''}; language=${p.language || ''}; seat=${p.seat_pref || ''}`;
+                prefText = `Sở thích user: Thể loại ưa thích là ${prefs[0].genres || 'Chưa rõ'}.`;
             }
         }
 
-        // Lấy lịch sử đặt vé gần đây (nếu có)
         let bookingText = '';
-        if (userId) {
+        if (userId && (cleanMsg.includes('đã đặt') || cleanMsg.includes('lịch sử') || cleanMsg.includes('gợi ý'))) {
             const history = await safeQuery(`
-                SELECT m.title, m.genre, b.status, b.booking_time
-                FROM bookings b
+                SELECT m.title FROM bookings b
                 JOIN showtimes s ON b.showtime_id = s.id
                 JOIN movies m ON s.movie_id = m.id
-                WHERE b.user_id = ?
-                ORDER BY b.booking_time DESC
-                LIMIT 10
+                WHERE b.user_id = ? ORDER BY b.booking_time DESC LIMIT 3
             `, [userId]);
             if (history && history.length) {
-                bookingText = 'Recent bookings:\n' + history.map(h => `- ${h.title} (${h.genre}) status=${h.status}`).join('\n');
+                bookingText = 'Phim khách đã xem gần đây: ' + history.map(h => h.title).join(', ') + '.';
             }
         }
 
-        // 4. Cập nhật System Instruction yêu cầu AI sử dụng dữ liệu vừa map để trả lời khách hàng
-        const systemInstruction = `Bạn là trợ lý ảo cho rạp phim TTV. Trả lời thân thiện, chính xác trong phạm vi rạp phim. Hãy sử dụng thông tin về phim, lịch chiếu và giá vé được cung cấp bên dưới để trả lời chi tiết và chính xác cho người dùng. Các câu hỏi ngoài phạm vi rạp phim thì từ chối trả lời lịch sự.\n${prefText}\n${bookingText}\nDanh sách phim kèm lịch chiếu và giá vé hiện có:\n${movieContext}\nHãy trả lời ngắn gọn, rõ ràng và tự động xuống dòng, phân tách các ý cho đẹp mắt, dễ đọc.`;
+        // --- BƯỚC 3: ĐÓNG GÓI SYSTEM INSTRUCTION VÀ GỌI GEMINI ---
+        const systemInstruction = `Bạn là trợ lý ảo rạp phim TTV. Trả lời ngắn gọn, xuống dòng rõ ràng, phân tách ý bằng dấu gạch đầu dòng cho đẹp mắt.
+Thông tin hỗ trợ trả lời (chỉ sử dụng nếu liên quan câu hỏi):
+${prefText}
+${bookingText}
+Dữ liệu rạp đang có:
+${movieContext}`;
 
-        // Gọi Gemini API tương tác
         const model = genAI.getGenerativeModel({
             model: 'gemini-2.5-flash-lite',
             systemInstruction
         });
 
-        const prompt = userMessage;
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(userMessage);
         const aiReply = result?.response?.text ? result.response.text() : 'Xin lỗi, tôi không thể trả lời lúc này.';
 
-        // Lưu log tương tác AI
+        // Lưu log tương tác
         try {
             await db.query('INSERT INTO ai_interactions (user_id, user_query, ai_response, meta) VALUES (?, ?, ?, ?)', [userId || null, userMessage, aiReply, JSON.stringify({ mode })]);
         } catch (e) {
@@ -127,10 +185,9 @@ exports.updatePreferences = async (req, res) => {
     if (!userId) return res.status(400).json({ error: 'userId required' });
 
     try {
-        // Upsert behavior
         await db.query(`
             INSERT INTO user_preferences (user_id, genres, language, seat_pref)
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?)
             ON DUPLICATE KEY UPDATE genres = VALUES(genres), language = VALUES(language), seat_pref = VALUES(seat_pref)
         `, [userId, genres, language, seat_pref]);
 
@@ -145,17 +202,14 @@ exports.updatePreferences = async (req, res) => {
 exports.recommendations = async (req, res) => {
     const { userId } = req.params;
     try {
-        // Basic heuristic: prefer user's genres and not-yet-seen movies
         let prefs = null;
         if (userId) prefs = await safeQuery('SELECT * FROM user_preferences WHERE user_id = ?', [userId]);
         const prefGenres = prefs && prefs[0] && prefs[0].genres ? prefs[0].genres.split(',').map(s => s.trim().toLowerCase()) : [];
 
-        // Movies and booking history
         const movies = await safeQuery('SELECT id, title, genre, poster_url FROM movies');
         const booked = userId ? await safeQuery(`SELECT DISTINCT m.id FROM bookings b JOIN showtimes s ON b.showtime_id = s.id JOIN movies m ON s.movie_id = m.id WHERE b.user_id = ?`, [userId]) : [];
         const bookedIds = new Set((booked || []).map(r => r.id));
 
-        // Score movies
         const scored = (movies || []).map(m => {
             let score = 0;
             const genres = (m.genre || '').toLowerCase().split(',').map(s => s.trim());

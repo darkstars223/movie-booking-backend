@@ -8,6 +8,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 let cachedMovieContext = null;
 let lastMovieCacheTime = 0;
 const MOVIE_CACHE_TTL = 15 * 60 * 1000; // 15 phút
+let cachedMovies = [];
 
 let cachedShowtimeContext = null;
 let lastShowtimeCacheTime = 0;
@@ -35,6 +36,7 @@ exports.chatWithAI = async (req, res) => {
         // 1. LẤY DANH SÁCH PHIM (Có cache)
         if (!cachedMovieContext || (now - lastMovieCacheTime > MOVIE_CACHE_TTL)) {
             const movies = await safeQuery('SELECT id, title, genre, description FROM movies LIMIT 50') || [];
+            cachedMovies = movies;
             cachedMovieContext = movies.map(m => `- ${m.title} (${m.genre}): ${m.description}`).join('\n');
             lastMovieCacheTime = now;
         }
@@ -46,7 +48,7 @@ exports.chatWithAI = async (req, res) => {
 
             // Thay vì dùng NOW(), dùng DATE(s.start_time) >= ? để lấy toàn bộ lịch chiếu từ hôm nay trở đi
             const showtimes = await safeQuery(`
-                SELECT s.movie_id, m.title, s.start_time, s.price, s.hall, s.available_seats
+                SELECT s.movie_id, m.title, s.start_time, s.price, s.room_name, s.available_seats
                 FROM showtimes s
                 JOIN movies m ON s.movie_id = m.id
                 WHERE DATE(s.start_time) >= ?
@@ -56,7 +58,7 @@ exports.chatWithAI = async (req, res) => {
             
             cachedShowtimeContext = showtimes.map(s => {
                 const timeStr = new Date(s.start_time).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-                return `- Phim "${s.title}": Suất chiếu lúc ${timeStr} | Phòng: ${s.hall} | Giá vé: ${Number(s.price).toLocaleString('vi-VN')} VNĐ | Còn ${s.available_seats} ghế`;
+                return `- Phim "${s.title}": Suất chiếu lúc ${timeStr} | Phòng: ${s.room_name} | Giá vé: ${Number(s.price).toLocaleString('vi-VN')} VNĐ | Còn ${s.available_seats} ghế`;
             }).join('\n');
             
             lastShowtimeCacheTime = now;
@@ -89,6 +91,16 @@ exports.chatWithAI = async (req, res) => {
                 bookingText = 'Recent bookings:\n' + history.map(h => `- ${h.title} (${h.genre}) status=${h.status}`).join('\n');
             }
         }
+
+        // Derive movie matching lists used by system instruction
+        const allMovies = cachedMovies || [];
+        const qLower = (userMessage || '').toLowerCase();
+        const relevantMovies = allMovies.filter(m => {
+            const t = (m.title || '').toLowerCase();
+            const g = (m.genre || '').toLowerCase();
+            const d = (m.description || '').toLowerCase();
+            return qLower && (t.includes(qLower) || g.includes(qLower) || d.includes(qLower));
+        }).slice(0, 8);
 
         // 4. NÂNG CẤP SYSTEM INSTRUCTION: Thiết lập kỷ luật tối đa cho AI
             let systemInstruction = `Bạn là trợ lý AI thông minh của rạp phim TTV. Trả lời thân thiện, ngắn gọn, chính xác.

@@ -100,7 +100,7 @@ const fetchShowtimesInternal = async (movieId) => {
 // POST /api/ai/chat
 // =============================================
 exports.chatWithAI = async (req, res) => {
-    const { userId, userMessage, chatHistory = [] } = req.body;
+    const { userId, userMessage } = req.body;
     if (!userMessage?.trim()) {
         return res.status(400).json({ error: 'userMessage is required' });
     }
@@ -183,16 +183,8 @@ ${movieContext}`;
             tools: [showtimesTool], 
         });
 
-        const formattedHistory = chatHistory.map(msg => ({
-            role: msg.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: msg.content || msg.text }]
-        }));
-
-
         // Bắt đầu phiên chat tự động xử lý Function Calling
-        const chat = model.startChat({
-            history: formattedHistory
-        });
+        const chat = model.startChat();
         let result = await chat.sendMessage(userMessage);
         
         // Kiểm tra xem AI có yêu cầu gọi hàm tra cứu lịch/giá vé dưới DB không

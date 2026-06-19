@@ -31,7 +31,7 @@ const getMoviesTool = {
     name: "getAvailableMovies",
     description: "Lấy danh sách toàn bộ các bộ phim đang chiếu tại rạp bao gồm ID, tiêu đề, thể loại và mô tả.",
     parameters: {
-        type: Type.OBJECT,
+        type: "OBJECT",
         properties: {},
     },
 };
@@ -40,10 +40,10 @@ const getShowtimesTool = {
     name: "getShowtimesForMovie",
     description: "Lấy danh sách các suất chiếu sắp tới của một bộ phim cụ thể dựa vào ID phim.",
     parameters: {
-        type: Type.OBJECT,
+        type: "OBJECT",
         properties: {
             movieId: {
-                type: Type.INTEGER,
+                type: "INTEGER",
                 description: "ID số nguyên của bộ phim cần tra cứu suất chiếu (ví dụ: 1, 2, 123)",
             },
         },

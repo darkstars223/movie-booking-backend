@@ -18,11 +18,8 @@ const safeQuery = async (sql, params = []) => {
     }
 };
 
-// ==========================================
-// 🛠️ CÁC HÀM TRUY VẤN DỮ LIỆU CÓ TÍCH HỢP CACHE
-// ==========================================
 
-// 1. Lấy lịch chiếu kèm giá vé (Cache 3 phút)
+// 1. Lấy lịch chiếu kèm giá vé 
 const getCachedShowtimesContext = async () => {
     const cacheKey = "ai_showtimes_context";
     
@@ -88,9 +85,7 @@ const getCachedMoviesContext = async () => {
 };
 
 
-// ==========================================
-// 🚀 ENDPOINTS API CONTROLLERS
-// ==========================================
+
 
 // POST /api/ai/chat
 exports.chatWithAI = async (req, res) => {
@@ -102,7 +97,7 @@ exports.chatWithAI = async (req, res) => {
         let movieContext = '';
         const cleanMsg = userMessage.toLowerCase();
 
-        // --- BƯỚC 1: PHÂN LOẠI Ý ĐỊNH USER & LẤY CONTEXT TỪ CACHE ---
+     
         
         // Nhóm câu hỏi về lịch chiếu, suất chiếu, giá vé
         if (cleanMsg.includes('lịch chiếu') || cleanMsg.includes('suất chiếu') || cleanMsg.includes('giá vé') || cleanMsg.includes('mấy giờ') || cleanMsg.includes('bao nhiêu tiền')) {
@@ -140,10 +135,17 @@ exports.chatWithAI = async (req, res) => {
         }
 
         // --- BƯỚC 3: ĐÓNG GÓI SYSTEM INSTRUCTION VÀ GỌI GEMINI ---
-        const systemInstruction = `Bạn là trợ lý ảo rạp phim TTV. Trả lời ngắn gọn, xuống dòng rõ ràng, phân tách ý bằng dấu gạch đầu dòng cho đẹp mắt.
-Thông tin hỗ trợ trả lời (chỉ sử dụng nếu liên quan câu hỏi):
+        const systemInstruction = `Bạn là trợ lý ảo chính thức của rạp phim TTV.
+NHIỆM VỤ :
+- CHỈ ĐƯỢC trả lời, gợi ý các bộ phim có tên cụ thể nằm trong mục "Dữ liệu rạp đang có" bên dưới.
+- TUYỆT ĐỐI KHÔNG tự bịa ra tên bộ phim, lịch chiếu hoặc giá vé nào khác nằm ngoài dữ liệu được cung cấp.
+- Nếu người dùng hỏi về phim/lịch chiếu không có trong dữ liệu hoặc dữ liệu trống, hãy lịch sự báo rằng rạp hiện chưa có suất chiếu cho phim đó hoặc đang cập nhật, tuyệt đối không tự lấy dữ liệu từ kiến thức bên ngoài của bạn.
+- Trả lời ngắn gọn, xuống dòng rõ ràng, phân tách ý bằng dấu gạch đầu dòng.
+
+Thông tin hỗ trợ cá nhân (chỉ sử dụng nếu liên quan):
 ${prefText}
 ${bookingText}
+
 Dữ liệu rạp đang có:
 ${movieContext}`;
 
